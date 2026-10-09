@@ -1,0 +1,23 @@
+sudo touch /var/log/atm-transactions.log && sudo chmod 666 /var/log/atm-transactions.log && sudo mkdir -p /opt/atm-logger && sudo tee /opt/atm-logger/capture.sh > /dev/null << 'EOF'
+#!/bin/bash
+ATM_NAME="ATM-MUMBAI"
+LOG="/var/log/atm-transactions.log"
+IFACE=$(ip route get 10.25.0.8 2>/dev/null | grep -oP 'dev \K\S+')
+[ -z "$IFACE" ] && IFACE="ens3"
+echo "[$ATM_NAME] Logger Started | Interface: $IFACE | $(date)" >> $LOG
+exec tcpdump -i "$IFACE" -A -s 0 -l 'tcp port 8001 and host 10.25.0.8' 2>&1 | grep --line-buffered -E "(POST|GET|amount|card|status|APPROVED|DECLINED|200|HTTP)" | while IFS= read -r line; do echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$ATM_NAME] $line" >> "$LOG"; done
+EOF
+sudo chmod +x /opt/atm-logger/capture.sh && sudo tee /etc/systemd/system/atm-logger.service > /dev/null << 'EOF'
+[Unit]
+Description=ATM Transaction Logger - MUMBAI
+After=network.target
+[Service]
+Type=simple
+ExecStart=/bin/bash /opt/atm-logger/capture.sh
+Restart=always
+RestartSec=5
+User=root
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload && sudo systemctl enable atm-logger && sudo systemctl start atm-logger && echo "echo '=== ATM-MUMBAI TRANSACTION LOGS ===' && sudo tail -f /var/log/atm-transactions.log" >> ~/.bashrc && sudo systemctl status atm-logger --no-pager
